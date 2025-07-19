@@ -1,0 +1,238 @@
+{
+  "custom_object": {
+    "name": "Enquiry Log",
+    "api_name": "enquiry_log",
+    "description": "Logs customer enquiries for tracking and analysis",
+    "icon": "message-circle",
+    "color": "#3B82F6",
+    "permissions": {
+      "create": ["admin", "support_manager", "workflow"],
+      "read": ["admin", "support_manager", "support_agent"],
+      "update": ["admin", "support_manager", "support_agent"],
+      "delete": ["admin", "support_manager"]
+    },
+    "fields": [
+      {
+        "name": "Enquiry ID",
+        "api_name": "enquiry_id",
+        "field_type": "text",
+        "max_length": 50,
+        "required": true,
+        "unique": true,
+        "default_value": null,
+        "help_text": "Unique identifier for the enquiry (auto-generated)",
+        "validation": {
+          "pattern": "^ENQ-[0-9]{8}-[0-9]{6}$"
+        }
+      },
+      {
+        "name": "Customer Name",
+        "api_name": "customer_name",
+        "field_type": "text",
+        "max_length": 255,
+        "required": true,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Name of the customer making the enquiry"
+      },
+      {
+        "name": "Phone Number",
+        "api_name": "phone_number",
+        "field_type": "phone",
+        "required": true,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Customer's WhatsApp phone number",
+        "validation": {
+          "format": "international"
+        }
+      },
+      {
+        "name": "Enquiry Details",
+        "api_name": "enquiry_details",
+        "field_type": "long_text",
+        "max_length": 2000,
+        "required": true,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Full text of the customer's enquiry message"
+      },
+      {
+        "name": "Enquiry Type",
+        "api_name": "enquiry_type",
+        "field_type": "picklist",
+        "required": false,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Category of the enquiry (to be filled by support staff)",
+        "picklist_values": [
+          {
+            "label": "Product Info",
+            "value": "product_info",
+            "color": "#10B981"
+          },
+          {
+            "label": "Shipping",
+            "value": "shipping",
+            "color": "#F59E0B"
+          },
+          {
+            "label": "Returns",
+            "value": "returns",
+            "color": "#EF4444"
+          },
+          {
+            "label": "Technical Support",
+            "value": "technical_support",
+            "color": "#8B5CF6"
+          },
+          {
+            "label": "General Enquiry",
+            "value": "general_enquiry",
+            "color": "#6B7280"
+          }
+        ]
+      },
+      {
+        "name": "Timestamp",
+        "api_name": "timestamp",
+        "field_type": "datetime",
+        "required": true,
+        "unique": false,
+        "default_value": "current_datetime",
+        "help_text": "When the enquiry was received",
+        "display_format": "YYYY-MM-DD HH:mm:ss"
+      },
+      {
+        "name": "Status",
+        "api_name": "status",
+        "field_type": "picklist",
+        "required": true,
+        "unique": false,
+        "default_value": "open",
+        "help_text": "Current status of the enquiry",
+        "picklist_values": [
+          {
+            "label": "Open",
+            "value": "open",
+            "color": "#3B82F6"
+          },
+          {
+            "label": "In Progress",
+            "value": "in_progress",
+            "color": "#F59E0B"
+          },
+          {
+            "label": "Resolved",
+            "value": "resolved",
+            "color": "#10B981"
+          },
+          {
+            "label": "Closed",
+            "value": "closed",
+            "color": "#6B7280"
+          }
+        ]
+      },
+      {
+        "name": "Assigned Staff",
+        "api_name": "assigned_staff",
+        "field_type": "text",
+        "max_length": 255,
+        "required": false,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Name of the staff member assigned to handle this enquiry"
+      }
+    ],
+    "relationships": [
+      {
+        "name": "Contact",
+        "type": "lookup",
+        "related_object": "contact",
+        "related_field": "phone_number",
+        "local_field": "phone_number"
+      },
+      {
+        "name": "Conversation",
+        "type": "lookup",
+        "related_object": "conversation",
+        "related_field": "contact_phone",
+        "local_field": "phone_number"
+      }
+    ],
+    "list_views": [
+      {
+        "name": "All Enquiries",
+        "fields": ["enquiry_id", "customer_name", "enquiry_type", "status", "timestamp", "assigned_staff"],
+        "filters": [],
+        "sort": [{"field": "timestamp", "direction": "desc"}]
+      },
+      {
+        "name": "Open Enquiries",
+        "fields": ["enquiry_id", "customer_name", "enquiry_type", "timestamp", "assigned_staff"],
+        "filters": [{"field": "status", "operator": "equals", "value": "open"}],
+        "sort": [{"field": "timestamp", "direction": "desc"}]
+      },
+      {
+        "name": "My Assigned Enquiries",
+        "fields": ["enquiry_id", "customer_name", "enquiry_type", "status", "timestamp"],
+        "filters": [{"field": "assigned_staff", "operator": "equals", "value": "{{current_user.name}}"}],
+        "sort": [{"field": "timestamp", "direction": "desc"}]
+      }
+    ],
+    "page_layouts": [
+      {
+        "name": "Standard Layout",
+        "sections": [
+          {
+            "name": "Enquiry Information",
+            "columns": 2,
+            "fields": ["enquiry_id", "timestamp", "customer_name", "phone_number"]
+          },
+          {
+            "name": "Enquiry Details",
+            "columns": 1,
+            "fields": ["enquiry_details"]
+          },
+          {
+            "name": "Classification & Assignment",
+            "columns": 2,
+            "fields": ["enquiry_type", "status", "assigned_staff"]
+          }
+        ]
+      }
+    ],
+    "automation": {
+      "field_updates": [
+        {
+          "trigger": "status_changed_to_resolved",
+          "action": "set_field",
+          "field": "resolved_date",
+          "value": "current_datetime"
+        }
+      ],
+      "notifications": [
+        {
+          "trigger": "record_created",
+          "recipients": ["assigned_staff"],
+          "template": "new_enquiry_assignment"
+        }
+      ]
+    },
+    "reports": [
+      {
+        "name": "Enquiry Volume Report",
+        "type": "summary",
+        "group_by": ["enquiry_type", "status"],
+        "metrics": ["count", "avg_response_time"]
+      },
+      {
+        "name": "Staff Performance Report",
+        "type": "summary",
+        "group_by": ["assigned_staff"],
+        "metrics": ["count", "avg_resolution_time"]
+      }
+    ]
+  }
+}

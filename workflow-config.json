@@ -1,0 +1,180 @@
+{
+  "workflow": {
+    "name": "WhatsApp Enquiry Auto-Handler",
+    "description": "Automatically handles new customer enquiries on WhatsApp",
+    "version": "1.0",
+    "enabled": true,
+    "priority": "high",
+    "timeout": 30,
+    "logging_enabled": true,
+    "trigger": {
+      "type": "message_received",
+      "config": {
+        "channels": ["whatsapp"],
+        "direction": "incoming",
+        "message_types": ["text"]
+      }
+    },
+    "flow": {
+      "nodes": [
+        {
+          "id": "trigger",
+          "type": "trigger",
+          "name": "Message Received",
+          "config": {
+            "trigger_type": "message_received"
+          },
+          "next": "condition_new_customer"
+        },
+        {
+          "id": "condition_new_customer",
+          "type": "condition",
+          "name": "Check if New Customer",
+          "config": {
+            "field": "contact.conversation_count",
+            "operator": "equals",
+            "value": 0
+          },
+          "branches": {
+            "true": "condition_keywords",
+            "false": "end_silent"
+          }
+        },
+        {
+          "id": "condition_keywords",
+          "type": "condition",
+          "name": "Check for Enquiry Keywords",
+          "config": {
+            "field": "message.text",
+            "operator": "contains_any_of",
+            "values": [
+              "price", "cost", "how much", "delivery", "shipping", 
+              "size", "available", "stock", "order", "buy", 
+              "purchase", "return", "refund", "help", "support", 
+              "info", "information", "details"
+            ],
+            "case_sensitive": false
+          },
+          "branches": {
+            "true": "action_auto_reply",
+            "false": "end_silent"
+          }
+        },
+        {
+          "id": "action_auto_reply",
+          "type": "action",
+          "name": "Send Auto-Reply",
+          "config": {
+            "action_type": "send_message",
+            "channel": "whatsapp",
+            "message_type": "text",
+            "template": "Thanks for your enquiry! 🙏 We're reviewing your message and will respond soon.\n\nFor urgent matters, reply with 'URGENT' and we'll prioritize your request.\n\n- The [Company Name] Team"
+          },
+          "next": "action_assign"
+        },
+        {
+          "id": "action_assign",
+          "type": "action",
+          "name": "Assign Conversation",
+          "config": {
+            "action_type": "assign_conversation",
+            "assignment_type": "round_robin",
+            "team": "Support Team",
+            "fallback_user": "Support Manager"
+          },
+          "next": "action_create_object",
+          "error_handler": "error_assignment_failed"
+        },
+        {
+          "id": "action_create_object",
+          "type": "action",
+          "name": "Create Enquiry Log",
+          "config": {
+            "action_type": "create_custom_object",
+            "object_name": "enquiry_log",
+            "field_mappings": {
+              "enquiry_id": {
+                "type": "formula",
+                "value": "CONCAT('ENQ-', TEXT(NOW(), 'YYYYMMDD-HHMMSS'))"
+              },
+              "customer_name": {
+                "type": "variable",
+                "value": "{{contact.name}}"
+              },
+              "phone_number": {
+                "type": "variable",
+                "value": "{{contact.phone}}"
+              },
+              "enquiry_details": {
+                "type": "variable",
+                "value": "{{message.text}}"
+              },
+              "timestamp": {
+                "type": "variable",
+                "value": "{{current_datetime}}"
+              },
+              "status": {
+                "type": "static",
+                "value": "Open"
+              },
+              "assigned_staff": {
+                "type": "variable",
+                "value": "{{assigned_user.name}}"
+              },
+              "enquiry_type": {
+                "type": "static",
+                "value": null
+              }
+            }
+          },
+          "next": "end_success"
+        },
+        {
+          "id": "error_assignment_failed",
+          "type": "error_handler",
+          "name": "Handle Assignment Failure",
+          "config": {
+            "error_types": ["assignment_failed"],
+            "action": {
+              "type": "send_internal_message",
+              "recipients": ["Support Team"],
+              "message": "⚠️ Assignment Failed\n\nEnquiry from: {{contact.name}} ({{contact.phone}})\nMessage: {{message.text}}\nTime: {{current_datetime}}\n\nPlease assign manually in SleekFlow."
+            }
+          },
+          "next": "action_create_object"
+        },
+        {
+          "id": "end_silent",
+          "type": "end",
+          "name": "End Flow (Silent)",
+          "config": {
+            "type": "silent"
+          }
+        },
+        {
+          "id": "end_success",
+          "type": "end",
+          "name": "End Flow (Success)",
+          "config": {
+            "type": "success"
+          }
+        }
+      ]
+    },
+    "variables": {
+      "enquiry_keywords": [
+        "price", "cost", "how much", "delivery", "shipping",
+        "size", "available", "stock", "order", "buy",
+        "purchase", "return", "refund", "help", "support",
+        "info", "information", "details"
+      ],
+      "auto_reply_template": "Thanks for your enquiry! 🙏 We're reviewing your message and will respond soon.\n\nFor urgent matters, reply with 'URGENT' and we'll prioritize your request.\n\n- The [Company Name] Team"
+    },
+    "metadata": {
+      "created_date": "2025-01-19",
+      "last_modified": "2025-01-19",
+      "author": "System Administrator",
+      "tags": ["whatsapp", "enquiry", "automation", "support"]
+    }
+  }
+}
