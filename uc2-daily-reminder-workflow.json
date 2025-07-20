@@ -1,0 +1,195 @@
+{
+  "workflow": {
+    "name": "Daily Internal Enquiry Reminder",
+    "description": "Sends daily reminders at 6 PM about unresolved enquiries to support staff",
+    "version": "1.0",
+    "enabled": true,
+    "priority": "medium",
+    "timeout": 120,
+    "logging_enabled": true,
+    "trigger": {
+      "type": "schedule",
+      "config": {
+        "schedule_type": "daily",
+        "time": "18:00",
+        "timezone": "UTC+8",
+        "days_of_week": ["monday", "tuesday", "wednesday", "thursday", "friday"]
+      }
+    },
+    "flow": {
+      "nodes": [
+        {
+          "id": "trigger",
+          "type": "trigger",
+          "name": "Daily Schedule Trigger",
+          "config": {
+            "trigger_type": "schedule"
+          },
+          "next": "condition_weekday_check"
+        },
+        {
+          "id": "condition_weekday_check",
+          "type": "condition",
+          "name": "Check if Weekday",
+          "config": {
+            "field": "current_datetime",
+            "operator": "day_of_week_not_in",
+            "values": ["saturday", "sunday"]
+          },
+          "branches": {
+            "true": "action_search_contacts",
+            "false": "end_weekend"
+          }
+        },
+        {
+          "id": "action_search_contacts",
+          "type": "action",
+          "name": "Search Unresolved Enquiries",
+          "config": {
+            "action_type": "search_custom_objects",
+            "object_name": "enquiry_log",
+            "filters": [
+              {
+                "field": "status",
+                "operator": "not_equals",
+                "value": "resolved"
+              },
+              {
+                "field": "status",
+                "operator": "not_equals", 
+                "value": "closed"
+              },
+              {
+                "field": "timestamp",
+                "operator": "older_than",
+                "value": "24_hours"
+              }
+            ],
+            "sort": [
+              {
+                "field": "timestamp",
+                "direction": "desc"
+              }
+            ],
+            "limit": 50
+          },
+          "next": "condition_check_results",
+          "error_handler": "error_search_failed"
+        },
+        {
+          "id": "condition_check_results",
+          "type": "condition", 
+          "name": "Check if Enquiries Found",
+          "config": {
+            "field": "search_results.count",
+            "operator": "greater_than",
+            "value": 0
+          },
+          "branches": {
+            "true": "action_build_summary",
+            "false": "action_send_no_enquiries"
+          }
+        },
+        {
+          "id": "action_build_summary",
+          "type": "action",
+          "name": "Build Enquiry Summary",
+          "config": {
+            "action_type": "set_variables",
+            "variables": {
+              "contact_count": "{{search_results.count}}",
+              "top_contacts": {
+                "type": "formula",
+                "value": "SLICE(SORT(search_results, 'timestamp', 'desc'), 0, 5)"
+              },
+              "summary_text": {
+                "type": "formula", 
+                "value": "CONCAT('Contact: ', contact.customer_name, ' (', contact.phone_number, ') - ', LEFT(contact.enquiry_details, 50), '...')"
+              }
+            }
+          },
+          "next": "action_send_reminder"
+        },
+        {
+          "id": "action_send_reminder",
+          "type": "action",
+          "name": "Send Daily Reminder",
+          "config": {
+            "action_type": "send_internal_message",
+            "recipients": ["Support Team"],
+            "message_template": "📋 Daily Enquiry Reminder\n\n🔍 There are {{contact_count}} contacts with unresolved enquiries needing attention.\n\n📊 Top 5 by recency:\n{{#each top_contacts}}\n• {{customer_name}} ({{phone_number}}) - {{LEFT enquiry_details 50}}...\n  Status: {{status}} | Age: {{TIME_AGO timestamp}}\n{{/each}}\n\n⏰ Please review and address these enquiries ASAP.\n\n💡 Tip: Focus on enquiries older than 24 hours first.\n\n---\n🤖 Automated reminder sent at {{current_datetime}}"
+          },
+          "next": "end_success"
+        },
+        {
+          "id": "action_send_no_enquiries",
+          "type": "action",
+          "name": "Send No Enquiries Message",
+          "config": {
+            "action_type": "send_internal_message",
+            "recipients": ["Support Team"],
+            "message_template": "✅ Daily Enquiry Check\n\nGreat news! All enquiries have been addressed - no unresolved items found.\n\n🎉 Keep up the excellent work!\n\n---\n🤖 Automated check completed at {{current_datetime}}"
+          },
+          "next": "end_success"
+        },
+        {
+          "id": "error_search_failed",
+          "type": "error_handler",
+          "name": "Handle Search Error",
+          "config": {
+            "error_types": ["search_failed", "api_timeout", "permission_denied"],
+            "action": {
+              "type": "send_internal_message",
+              "recipients": ["Support Team", "System Admin"],
+              "message": "⚠️ Daily Reminder Error\n\nUnable to fetch enquiry data for daily reminder.\n\nError: {{error.message}}\nTime: {{current_datetime}}\n\n🔧 Please check the system and run manual enquiry review.\n\n📋 Manual Action Required:\n1. Check SleekFlow enquiry logs\n2. Review unresolved items\n3. Contact system admin if issue persists"
+            }
+          },
+          "next": "end_error"
+        },
+        {
+          "id": "end_weekend",
+          "type": "end",
+          "name": "End Flow (Weekend Skip)",
+          "config": {
+            "type": "silent",
+            "log_message": "Skipped daily reminder - weekend"
+          }
+        },
+        {
+          "id": "end_success",
+          "type": "end",
+          "name": "End Flow (Success)",
+          "config": {
+            "type": "success",
+            "log_message": "Daily reminder sent successfully"
+          }
+        },
+        {
+          "id": "end_error",
+          "type": "end",
+          "name": "End Flow (Error)",
+          "config": {
+            "type": "error",
+            "log_message": "Daily reminder failed - error notification sent"
+          }
+        }
+      ]
+    },
+    "variables": {
+      "reminder_time": "18:00",
+      "timezone": "UTC+8",
+      "max_enquiries_display": 5,
+      "age_threshold_hours": 24,
+      "target_recipients": ["Support Team"],
+      "fallback_recipients": ["System Admin"]
+    },
+    "metadata": {
+      "created_date": "2025-01-20",
+      "last_modified": "2025-01-20", 
+      "author": "System Administrator",
+      "tags": ["schedule", "reminder", "enquiry", "internal", "daily"],
+      "related_workflows": ["WhatsApp Enquiry Auto-Handler"],
+      "dependencies": ["enquiry_log custom object", "Support Team user group"]
+    }
+  }
+}
