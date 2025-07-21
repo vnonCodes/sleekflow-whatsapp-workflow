@@ -1,0 +1,383 @@
+{
+  "scenario": {
+    "name": "Shopify Order to WhatsApp Confirmation",
+    "description": "Automated WhatsApp order confirmations for Shopify orders via SleekFlow API",
+    "version": "1.0",
+    "enabled": true,
+    "scheduling": "immediate",
+    "max_cycles": 1,
+    "sequential_processing": true,
+    "timeout": 300,
+    "modules": [
+      {
+        "id": 1,
+        "module": "webhook:custom",
+        "name": "Shopify Order Webhook",
+        "config": {
+          "webhook_name": "shopify_order_webhook",
+          "data_structure": {
+            "type": "collection",
+            "spec": [
+              {
+                "name": "id",
+                "type": "number"
+              },
+              {
+                "name": "order_number",
+                "type": "text"
+              },
+              {
+                "name": "total_price",
+                "type": "text"
+              },
+              {
+                "name": "currency",
+                "type": "text"
+              },
+              {
+                "name": "created_at",
+                "type": "date"
+              },
+              {
+                "name": "order_status_url",
+                "type": "url"
+              },
+              {
+                "name": "customer",
+                "type": "collection",
+                "spec": [
+                  {
+                    "name": "id",
+                    "type": "number"
+                  },
+                  {
+                    "name": "first_name",
+                    "type": "text"
+                  },
+                  {
+                    "name": "last_name",
+                    "type": "text"
+                  },
+                  {
+                    "name": "email",
+                    "type": "email"
+                  },
+                  {
+                    "name": "phone",
+                    "type": "phone"
+                  }
+                ]
+              },
+              {
+                "name": "line_items",
+                "type": "array",
+                "spec": {
+                  "type": "collection",
+                  "spec": [
+                    {
+                      "name": "title",
+                      "type": "text"
+                    },
+                    {
+                      "name": "quantity",
+                      "type": "number"
+                    },
+                    {
+                      "name": "price",
+                      "type": "text"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "next": 2
+      },
+      {
+        "id": 2,
+        "module": "builtin:router",
+        "name": "Phone Number Validation Router",
+        "config": {
+          "routes": [
+            {
+              "route_id": "valid_phone",
+              "condition": {
+                "operator": "and",
+                "conditions": [
+                  {
+                    "field": "{{1.customer.phone}}",
+                    "operator": "exists"
+                  },
+                  {
+                    "field": "{{1.customer.phone}}",
+                    "operator": "not_empty"
+                  }
+                ]
+              },
+              "next": 3
+            },
+            {
+              "route_id": "invalid_phone",
+              "condition": {
+                "operator": "or",
+                "conditions": [
+                  {
+                    "field": "{{1.customer.phone}}",
+                    "operator": "not_exists"
+                  },
+                  {
+                    "field": "{{1.customer.phone}}",
+                    "operator": "empty"
+                  }
+                ]
+              },
+              "next": 8
+            }
+          ]
+        }
+      },
+      {
+        "id": 3,
+        "module": "text:replace",
+        "name": "Format Phone Number",
+        "config": {
+          "text": "{{1.customer.phone}}",
+          "search_for": "[^\\d\\+]",
+          "replace_with": "",
+          "global": true,
+          "case_sensitive": false,
+          "multiline": false
+        },
+        "next": 4
+      },
+      {
+        "id": 4,
+        "module": "text:replace",
+        "name": "Ensure International Format",
+        "config": {
+          "text": "{{3.text}}",
+          "search_for": "^(?!\\+)",
+          "replace_with": "+",
+          "global": false,
+          "case_sensitive": false,
+          "multiline": false
+        },
+        "next": 5
+      },
+      {
+        "id": 5,
+        "module": "http:request",
+        "name": "Send WhatsApp Message via SleekFlow",
+        "config": {
+          "url": "https://api.sleekflow.io/v1/messages",
+          "method": "POST",
+          "headers": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{environment.SLEEKFLOW_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "type": "json",
+            "content": {
+              "channel": "whatsapp",
+              "to": "{{4.text}}",
+              "text": "🎉 Order Confirmation - ABC Fashion\\n\\nHi {{1.customer.first_name}}! 👋\\n\\n✅ Your order #{{1.order_number}} has been confirmed!\\n\\n📦 Items:\\n{{join(map(1.line_items; \"• \" + title + \" x\" + quantity); \"\\n\")}}\\n\\n💰 Total: {{1.currency}} {{1.total_price}}\\n\\n📱 Track your order: {{1.order_status_url}}\\n\\nThank you for shopping with us! 🙏\\n\\nQuestions? Reply to this message! 💬\\n\\n- ABC Fashion Team"
+            }
+          },
+          "timeout": 30
+        },
+        "error_handlers": [
+          {
+            "type": "retry",
+            "config": {
+              "interval": 30,
+              "max_repeats": 2,
+              "break_on_errors": ["400", "401", "403", "404"]
+            }
+          },
+          {
+            "type": "resume",
+            "next": 7
+          }
+        ],
+        "next": 6
+      },
+      {
+        "id": 6,
+        "module": "http:request",
+        "name": "Create/Update Contact in SleekFlow",
+        "config": {
+          "url": "https://api.sleekflow.io/v1/contacts",
+          "method": "POST",
+          "headers": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{environment.SLEEKFLOW_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "type": "json",
+            "content": {
+              "phone": "{{4.text}}",
+              "name": "{{1.customer.first_name}} {{1.customer.last_name}}",
+              "email": "{{1.customer.email}}",
+              "custom_fields": {
+                "shopify_customer_id": "{{1.customer.id}}",
+                "last_order_id": "{{1.id}}",
+                "last_order_total": "{{1.total_price}}",
+                "last_order_date": "{{1.created_at}}",
+                "order_count": "{{add(ifempty(1.customer.orders_count; 0); 1)}}",
+                "customer_type": "{{if(gt(ifempty(1.customer.orders_count; 0); 0); \"returning\"; \"new\")}}"
+              }
+            }
+          },
+          "timeout": 30
+        },
+        "error_handlers": [
+          {
+            "type": "ignore"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "module": "email:send",
+        "name": "Send Error Notification",
+        "config": {
+          "to": "admin@abcfashion.com",
+          "subject": "Shopify Order Confirmation Failed - Order #{{1.order_number}}",
+          "content": "⚠️ WhatsApp Order Confirmation Failed\\n\\n📋 Order Details:\\n- Order ID: {{1.id}}\\n- Order Number: {{1.order_number}}\\n- Customer: {{1.customer.first_name}} {{1.customer.last_name}}\\n- Phone: {{1.customer.phone}}\\n- Email: {{1.customer.email}}\\n- Total: {{1.currency}} {{1.total_price}}\\n- Created: {{1.created_at}}\\n\\n❌ Error Details:\\n{{5.error.message}}\\n\\n🔧 Action Required:\\nPlease send manual order confirmation to customer.\\n\\n📱 Customer Contact:\\n- WhatsApp: {{1.customer.phone}}\\n- Email: {{1.customer.email}}\\n\\n🔗 Order Link: {{1.order_status_url}}",
+          "from": "noreply@abcfashion.com",
+          "from_name": "ABC Fashion System"
+        }
+      },
+      {
+        "id": 8,
+        "module": "email:send",
+        "name": "Send Missing Phone Notification",
+        "config": {
+          "to": "admin@abcfashion.com",
+          "subject": "Order Without Phone Number - Order #{{1.order_number}}",
+          "content": "⚠️ Order Received Without Valid Phone Number\\n\\n📋 Order Details:\\n- Order ID: {{1.id}}\\n- Order Number: {{1.order_number}}\\n- Customer: {{1.customer.first_name}} {{1.customer.last_name}}\\n- Email: {{1.customer.email}}\\n- Phone: {{ifempty(1.customer.phone; \"Not provided\")}}\\n- Total: {{1.currency}} {{1.total_price}}\\n\\n📧 Consider sending email confirmation instead.\\n\\n🔗 Order Link: {{1.order_status_url}}",
+          "from": "noreply@abcfashion.com",
+          "from_name": "ABC Fashion System"
+        }
+      }
+    ],
+    "environment_variables": [
+      {
+        "name": "SLEEKFLOW_API_KEY",
+        "value": "your_sleekflow_api_key_here",
+        "encrypted": true
+      }
+    ],
+    "data_stores": [],
+    "webhooks": [
+      {
+        "id": "shopify_order_webhook",
+        "url": "https://hook.make.com/your-webhook-key-here",
+        "method": "POST"
+      }
+    ],
+    "settings": {
+      "sequential_processing": true,
+      "auto_commit": true,
+      "allow_storing_incomplete_executions": true,
+      "log_level": "info",
+      "max_results": 1000
+    },
+    "metadata": {
+      "created_date": "2025-01-21",
+      "author": "System Administrator",
+      "version": "1.0",
+      "tags": ["shopify", "whatsapp", "order-confirmation", "sleekflow"],
+      "dependencies": ["SleekFlow API", "Shopify Webhooks"]
+    }
+  },
+  "test_data": {
+    "shopify_webhook_payload": {
+      "id": 5678901234567,
+      "order_number": "1001",
+      "total_price": "39.98",
+      "currency": "USD",
+      "created_at": "2025-01-21T10:30:00Z",
+      "order_status_url": "https://abcfashion.myshopify.com/orders/abc123def456",
+      "customer": {
+        "id": 7890123456789,
+        "first_name": "John",
+        "last_name": "Doe",
+        "email": "john.doe@example.com",
+        "phone": "+1234567890",
+        "orders_count": 0
+      },
+      "line_items": [
+        {
+          "title": "Classic T-Shirt",
+          "quantity": 2,
+          "price": "19.99"
+        }
+      ]
+    }
+  },
+  "advanced_settings": {
+    "conditional_logic": {
+      "customer_segmentation": {
+        "new_customer": {
+          "condition": "orders_count == 0",
+          "message_template": "welcome_first_order",
+          "special_offers": true
+        },
+        "returning_customer": {
+          "condition": "orders_count > 0",
+          "message_template": "returning_customer_order",
+          "loyalty_points": true
+        },
+        "vip_customer": {
+          "condition": "total_order_value > 500",
+          "message_template": "vip_order_confirmation",
+          "priority_support": true
+        }
+      },
+      "regional_customization": {
+        "us_orders": {
+          "currency_format": "USD $",
+          "delivery_estimate": "3-5 business days",
+          "support_hours": "9 AM - 6 PM EST"
+        },
+        "ca_orders": {
+          "currency_format": "CAD $",
+          "delivery_estimate": "5-7 business days",
+          "support_hours": "9 AM - 6 PM PST"
+        }
+      }
+    },
+    "message_templates": {
+      "standard_confirmation": "🎉 Order Confirmation - ABC Fashion\\n\\nHi {{customer_name}}! 👋\\n\\n✅ Your order #{{order_number}} has been confirmed!\\n\\n📦 Items:\\n{{item_list}}\\n\\n💰 Total: {{currency}} {{total_price}}\\n\\n📱 Track your order: {{tracking_url}}\\n\\nThank you for shopping with us! 🙏\\n\\n- ABC Fashion Team",
+      "new_customer_welcome": "🎉 Welcome to ABC Fashion!\\n\\nHi {{customer_name}}! 👋\\n\\n✅ Your first order #{{order_number}} is confirmed!\\n\\n📦 Items:\\n{{item_list}}\\n\\n💰 Total: {{currency}} {{total_price}}\\n\\n🎁 Special: Save 10% on your next order with code WELCOME10!\\n\\n📱 Track here: {{tracking_url}}\\n\\nWelcome to the family! 🙏\\n\\n- ABC Fashion Team",
+      "vip_confirmation": "👑 VIP Order Confirmed - ABC Fashion\\n\\nHi {{customer_name}}! ✨\\n\\n✅ Your premium order #{{order_number}} is confirmed!\\n\\n📦 Items:\\n{{item_list}}\\n\\n💰 Total: {{currency}} {{total_price}}\\n\\n🚚 Express shipping included\\n📞 Priority support: +1-800-VIP-HELP\\n📱 Track here: {{tracking_url}}\\n\\nThank you for being a VIP customer! 🙏\\n\\n- ABC Fashion VIP Team"
+    },
+    "error_recovery": {
+      "retry_policy": {
+        "max_attempts": 3,
+        "backoff_strategy": "exponential",
+        "initial_delay": 30,
+        "max_delay": 300
+      },
+      "fallback_actions": [
+        "email_notification",
+        "slack_alert",
+        "manual_task_creation"
+      ]
+    }
+  }
+}
