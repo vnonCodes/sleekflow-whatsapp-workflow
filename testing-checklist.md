@@ -63,6 +63,12 @@ Ensure that the WhatsApp Enquiry Workflow functions as expected and handles all 
 - Update documentation with test results and observations.
 - Communicate findings and prepare for full deployment.
 
+## UC3 Testing and Integration
+- Verify Make.com integration with Shopify webhooks.
+- Test phone validation and SleekFlow API message sending.
+- Confirm correct handling of edge cases such as invalid data and API errors.
+- Ensure interoperability with UC1 and UC2 frameworks where applicable.
+
 ---
 
 Document created on 2025-07-19.

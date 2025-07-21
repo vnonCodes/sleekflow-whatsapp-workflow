@@ -17,6 +17,10 @@ This package contains all necessary documentation and configuration files to imp
 - `uc2-testing-checklist.md` - Comprehensive testing guide for UC2
 - `uc2-test-report.md` - Test report template for UC2 validation
 
+### UC3: Shopify Order Confirmation Workflow
+- `uc3-implementation-guide.md` - Comprehensive implementation guide using Make.com and SleekFlow API
+- `uc3-make-scenario-config.json` - Scenario configuration file for Make.com
+
 ## Quick Start
 
 ### UC1 Implementation (Prerequisite for UC2)
