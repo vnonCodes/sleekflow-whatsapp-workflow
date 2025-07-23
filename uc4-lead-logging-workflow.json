@@ -1,0 +1,457 @@
+{
+  "workflow": {
+    "name": "UC4: Zoho CRM Lead Logger",
+    "description": "Automatically logs non-Shopify contacts to Zoho CRM and tracks monthly lead metrics",
+    "version": "1.0",
+    "enabled": true,
+    "priority": "high",
+    "timeout": 60,
+    "trigger": {
+      "type": "contact_created",
+      "name": "Contact Created Trigger",
+      "config": {
+        "contact_source": "all",
+        "contact_type": "all",
+        "execution": "real_time",
+        "conditions": []
+      }
+    },
+    "flow": {
+      "nodes": [
+        {
+          "id": "condition_1",
+          "type": "if_else",
+          "name": "Exclude Shopify Customers",
+          "config": {
+            "condition": {
+              "field": "contact.lead_source",
+              "operator": "not_equals",
+              "value": "Shopify",
+              "fallback_field": "contact.custom_fields.lead_source"
+            },
+            "description": "Filter out contacts from Shopify orders"
+          },
+          "yes_path": "condition_2",
+          "no_path": "end_flow"
+        },
+        {
+          "id": "condition_2",
+          "type": "if_else", 
+          "name": "Validate Required Contact Data",
+          "config": {
+            "condition": {
+              "operator": "and",
+              "conditions": [
+                {
+                  "field": "contact.name",
+                  "operator": "is_not_empty"
+                },
+                {
+                  "field": "contact.phone",
+                  "operator": "is_not_empty"
+                }
+              ]
+            },
+            "description": "Ensure minimum required data for Zoho lead creation"
+          },
+          "yes_path": "action_1",
+          "no_path": "error_insufficient_data"
+        },
+        {
+          "id": "action_1",
+          "type": "http_request",
+          "name": "Create Zoho CRM Lead",
+          "config": {
+            "url": "https://www.zohoapis.com/crm/v2/Leads",
+            "method": "POST",
+            "headers": {
+              "Authorization": "Zoho-oauthtoken {{env.ZOHO_ACCESS_TOKEN}}",
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "data": [
+                {
+                  "First_Name": "{{split(contact.name, ' ')[0]}}",
+                  "Last_Name": "{{split(contact.name, ' ')[1] || split(contact.name, ' ')[0]}}",
+                  "Phone": "{{contact.phone}}",
+                  "Email": "{{contact.email}}",
+                  "Lead_Source": "{{contact.lead_source || 'WhatsApp'}}",
+                  "Lead_Status": "Not Contacted",
+                  "Description": "Lead generated from SleekFlow - {{contact.lead_source || 'WhatsApp'}} channel on {{format(current_datetime, 'YYYY-MM-DD HH:mm:ss')}}",
+                  "SleekFlow_Contact_ID": "{{contact.id}}",
+                  "Created_Date": "{{current_datetime}}",
+                  "Lead_Quality": "Cold",
+                  "Tag": [
+                    "SleekFlow",
+                    "{{contact.lead_source || 'WhatsApp'}}"
+                  ]
+                }
+              ]
+            },
+            "timeout": 30,
+            "retry_config": {
+              "max_attempts": 3,
+              "retry_delay": 5,
+              "backoff_multiplier": 2
+            }
+          },
+          "success_path": "action_2",
+          "error_path": "error_handler_1"
+        },
+        {
+          "id": "action_2",
+          "type": "search_custom_object",
+          "name": "Search Existing Lead Log",
+          "config": {
+            "object": "lead_log",
+            "criteria": {
+              "operator": "and",
+              "conditions": [
+                {
+                  "field": "month_year",
+                  "operator": "equals",
+                  "value": "{{format(current_datetime, 'YYYY-MM')}}"
+                },
+                {
+                  "field": "lead_source",
+                  "operator": "equals",
+                  "value": "{{contact.lead_source || 'WhatsApp'}}"
+                }
+              ]
+            },
+            "limit": 1
+          },
+          "success_path": "condition_3",
+          "error_path": "action_4"
+        },
+        {
+          "id": "condition_3",
+          "type": "if_else",
+          "name": "Check Lead Log Exists",
+          "config": {
+            "condition": {
+              "field": "search_result.count",
+              "operator": "greater_than",
+              "value": 0
+            },
+            "description": "Determine if we need to update existing or create new lead log"
+          },
+          "yes_path": "action_3",
+          "no_path": "action_4"
+        },
+        {
+          "id": "action_3",
+          "type": "update_custom_object",
+          "name": "Update Existing Lead Log",
+          "config": {
+            "object": "lead_log",
+            "record_id": "{{search_result.records[0].id}}",
+            "fields": {
+              "lead_count": "{{add(search_result.records[0].lead_count, 1)}}",
+              "last_updated": "{{current_datetime}}",
+              "sync_status": "Synced"
+            }
+          },
+          "next": "action_5"
+        },
+        {
+          "id": "action_4",
+          "type": "create_custom_object",
+          "name": "Create New Lead Log",
+          "config": {
+            "object": "lead_log",
+            "fields": {
+              "month_year": "{{format(current_datetime, 'YYYY-MM')}}",
+              "lead_count": 1,
+              "lead_source": "{{contact.lead_source || 'WhatsApp'}}",
+              "last_updated": "{{current_datetime}}",
+              "sync_status": "Synced",
+              "failed_contacts": ""
+            }
+          },
+          "next": "action_5"
+        },
+        {
+          "id": "action_5",
+          "type": "add_tag",
+          "name": "Tag Contact as CRM Synced",
+          "config": {
+            "contact_id": "{{contact.id}}",
+            "tags": [
+              "CRM_Synced",
+              "Lead_{{format(current_datetime, 'YYYY-MM')}}"
+            ]
+          },
+          "next": "action_6"
+        },
+        {
+          "id": "action_6",
+          "type": "webhook",
+          "name": "Send to Make.com for Advanced Monitoring",
+          "config": {
+            "url": "{{env.MAKECOM_LEAD_WEBHOOK_URL}}",
+            "method": "POST",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-API-Key": "{{env.MAKECOM_API_KEY}}"
+            },
+            "body": {
+              "event_type": "lead_logged",
+              "timestamp": "{{current_datetime}}",
+              "contact": {
+                "id": "{{contact.id}}",
+                "name": "{{contact.name}}",
+                "phone": "{{contact.phone}}",
+                "email": "{{contact.email}}",
+                "lead_source": "{{contact.lead_source || 'WhatsApp'}}"
+              },
+              "zoho_response": {
+                "success": "{{action_1.success}}",
+                "lead_id": "{{action_1.response.data[0].details.id}}",
+                "created_time": "{{action_1.response.data[0].details.Created_Time}}"
+              },
+              "monthly_stats": {
+                "month_year": "{{format(current_datetime, 'YYYY-MM')}}",
+                "current_count": "{{action_3.lead_count || action_4.lead_count}}"
+              }
+            },
+            "optional": true,
+            "timeout": 15
+          },
+          "next": "end_flow"
+        },
+        {
+          "id": "error_handler_1",
+          "type": "error_handler",
+          "name": "Handle Zoho API Failure",
+          "config": {
+            "error_types": ["http_error", "timeout", "rate_limit"],
+            "actions": [
+              {
+                "type": "update_custom_object",
+                "config": {
+                  "object": "lead_log",
+                  "operation": "upsert",
+                  "match_fields": ["month_year", "lead_source"],
+                  "fields": {
+                    "month_year": "{{format(current_datetime, 'YYYY-MM')}}",
+                    "lead_source": "{{contact.lead_source || 'WhatsApp'}}",
+                    "lead_count": "{{add(existing_count || 0, 1)}}",
+                    "sync_status": "Failed",
+                    "failed_contacts": "{{append_json(existing_failed_contacts || '[]', contact.id)}}",
+                    "last_updated": "{{current_datetime}}"
+                  }
+                }
+              },
+              {
+                "type": "add_tag",
+                "config": {
+                  "contact_id": "{{contact.id}}",
+                  "tags": ["Sync_Pending", "CRM_Failed_{{format(current_datetime, 'YYYY-MM-DD')}}"]
+                }
+              },
+              {
+                "type": "send_internal_notification",
+                "config": {
+                  "recipients": ["admin@company.com", "support@company.com"],
+                  "channel": "slack",
+                  "webhook_url": "{{env.SLACK_ERROR_WEBHOOK}}",
+                  "message": {
+                    "text": "🚨 Zoho CRM Sync Failed",
+                    "blocks": [
+                      {
+                        "type": "section",
+                        "text": {
+                          "type": "mrkdwn",
+                          "text": "*Zoho CRM Sync Failed*\n\n*Contact Details:*\n• Name: {{contact.name}}\n• Phone: {{contact.phone}}\n• Email: {{contact.email}}\n• Lead Source: {{contact.lead_source}}\n• Contact ID: {{contact.id}}\n\n*Error Details:*\n• Error Type: {{error.type}}\n• Error Message: {{error.message}}\n• HTTP Status: {{error.http_status}}\n• Timestamp: {{current_datetime}}\n\n*Action Required:*\nPlease check Zoho API status and retry manually via SleekFlow admin panel."
+                        }
+                      },
+                      {
+                        "type": "actions",
+                        "elements": [
+                          {
+                            "type": "button",
+                            "text": {
+                              "type": "plain_text",
+                              "text": "Retry Sync"
+                            },
+                            "url": "{{env.SLEEKFLOW_ADMIN_URL}}/contacts/{{contact.id}}"
+                          },
+                          {
+                            "type": "button", 
+                            "text": {
+                              "type": "plain_text",
+                              "text": "Check Zoho Status"
+                            },
+                            "url": "https://status.zoho.com"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "next": "end_flow"
+        },
+        {
+          "id": "error_insufficient_data",
+          "type": "send_internal_notification",
+          "name": "Alert for Insufficient Contact Data",
+          "config": {
+            "recipients": ["admin@company.com"],
+            "message": "⚠️ Contact created with insufficient data for Zoho CRM sync\n\nContact ID: {{contact.id}}\nName: {{contact.name || 'Missing'}}\nPhone: {{contact.phone || 'Missing'}}\nEmail: {{contact.email || 'Missing'}}\n\nPlease review and update contact data manually.",
+            "priority": "low"
+          },
+          "next": "end_flow"
+        },
+        {
+          "id": "end_flow",
+          "type": "end",
+          "name": "End Workflow"
+        }
+      ]
+    },
+    "environment_variables": [
+      {
+        "name": "ZOHO_ACCESS_TOKEN",
+        "description": "Zoho CRM OAuth access token",
+        "required": true,
+        "encrypted": true
+      },
+      {
+        "name": "ZOHO_REFRESH_TOKEN",
+        "description": "Zoho CRM OAuth refresh token",
+        "required": true,
+        "encrypted": true
+      },
+      {
+        "name": "MAKECOM_LEAD_WEBHOOK_URL",
+        "description": "Make.com webhook URL for enhanced monitoring",
+        "required": false,
+        "encrypted": false
+      },
+      {
+        "name": "MAKECOM_API_KEY",
+        "description": "Make.com API key for webhook authentication",
+        "required": false,
+        "encrypted": true
+      },
+      {
+        "name": "SLACK_ERROR_WEBHOOK",
+        "description": "Slack webhook URL for error notifications",
+        "required": false,
+        "encrypted": true
+      },
+      {
+        "name": "SLEEKFLOW_ADMIN_URL",
+        "description": "SleekFlow admin panel base URL",
+        "required": false,
+        "encrypted": false
+      }
+    ],
+    "custom_objects": [
+      {
+        "name": "lead_log",
+        "description": "Monthly lead tracking and monitoring"
+      }
+    ],
+    "settings": {
+      "log_level": "info",
+      "execution_timeout": 60,
+      "retry_failed_actions": true,
+      "parallel_execution": false,
+      "data_retention_days": 90
+    },
+    "monitoring": {
+      "success_rate_threshold": 95,
+      "response_time_threshold": 30,
+      "alert_on_failure": true,
+      "daily_summary": true,
+      "metrics_collection": [
+        "execution_count",
+        "success_rate",
+        "average_execution_time",
+        "error_types",
+        "lead_sources_distribution"
+      ]
+    }
+  },
+  "testing": {
+    "test_contacts": [
+      {
+        "name": "Test User WhatsApp",
+        "phone": "+1234567890",
+        "email": "test@example.com",
+        "lead_source": "WhatsApp",
+        "expected_outcome": "success"
+      },
+      {
+        "name": "Test User Website",
+        "phone": "+1234567891",
+        "email": "test2@example.com", 
+        "lead_source": "Website Form",
+        "expected_outcome": "success"
+      },
+      {
+        "name": "Test Shopify Customer",
+        "phone": "+1234567892",
+        "email": "shopify@example.com",
+        "lead_source": "Shopify",
+        "expected_outcome": "excluded"
+      },
+      {
+        "name": "Incomplete Contact",
+        "phone": "",
+        "email": "incomplete@example.com",
+        "lead_source": "WhatsApp",
+        "expected_outcome": "insufficient_data_error"
+      }
+    ],
+    "validation_checklist": [
+      "Contact creation triggers workflow",
+      "Shopify contacts are excluded",
+      "Required field validation works",
+      "Zoho CRM lead is created successfully",
+      "Lead log is created/updated correctly",
+      "Contact is tagged appropriately",
+      "Error handling works for API failures",
+      "Make.com webhook is sent (if configured)",
+      "Monthly rollover works correctly",
+      "Performance impact is minimal"
+    ]
+  },
+  "integration": {
+    "uc1_enquiry_handler": {
+      "description": "Contacts from UC1 enquiries should have lead_source set to 'WhatsApp'",
+      "modification_required": "Add lead_source field setting in UC1 workflow"
+    },
+    "uc2_daily_reminder": {
+      "description": "Include lead metrics in daily reports",
+      "modification_required": "Add lead log query to UC2 reporting flow"
+    },
+    "uc3_shopify_orders": {
+      "description": "Shopify customers should be tagged to exclude from UC4",
+      "modification_required": "Set lead_source='Shopify' in UC3 contact creation"
+    }
+  },
+  "metadata": {
+    "created_date": "2025-01-21",
+    "version": "1.0",
+    "author": "System Administrator",
+    "dependencies": [
+      "UC1 WhatsApp Enquiry Handler",
+      "UC2 Daily Reminder",
+      "UC3 Shopify Order Confirmation",
+      "Zoho CRM API",
+      "Make.com (optional)"
+    ],
+    "tags": [
+      "lead-generation",
+      "zoho-crm",
+      "monthly-monitoring",
+      "automation"
+    ]
+  }
+}
