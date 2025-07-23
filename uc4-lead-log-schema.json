@@ -1,0 +1,613 @@
+{
+  "custom_object": {
+    "name": "Lead Log",
+    "api_name": "lead_log",
+    "description": "Monthly tracking of lead generation and CRM synchronization for business analytics",
+    "icon": "trending-up",
+    "color": "#10B981",
+    "permissions": {
+      "create": ["admin", "system", "workflow"],
+      "read": ["admin", "manager", "analyst", "support_manager"],
+      "update": ["admin", "manager", "workflow"],
+      "delete": ["admin"]
+    },
+    "fields": [
+      {
+        "name": "Month Year",
+        "api_name": "month_year",
+        "field_type": "text",
+        "max_length": 7,
+        "required": true,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Month and year in YYYY-MM format (e.g., 2025-01)",
+        "validation": {
+          "pattern": "^[0-9]{4}-[0-9]{2}$"
+        },
+        "indexed": true
+      },
+      {
+        "name": "Lead Source",
+        "api_name": "lead_source",
+        "field_type": "picklist",
+        "required": true,
+        "unique": false,
+        "default_value": "WhatsApp",
+        "help_text": "Source channel where the lead originated",
+        "picklist_values": [
+          {
+            "label": "WhatsApp",
+            "value": "WhatsApp",
+            "color": "#25D366"
+          },
+          {
+            "label": "Website Form",
+            "value": "Website Form",
+            "color": "#3B82F6"
+          },
+          {
+            "label": "Social Media",
+            "value": "Social Media",
+            "color": "#8B5CF6"
+          },
+          {
+            "label": "Direct Contact",
+            "value": "Direct Contact",
+            "color": "#F59E0B"
+          },
+          {
+            "label": "Referral",
+            "value": "Referral",
+            "color": "#10B981"
+          },
+          {
+            "label": "Other",
+            "value": "Other",
+            "color": "#6B7280"
+          }
+        ],
+        "indexed": true
+      },
+      {
+        "name": "Lead Count",
+        "api_name": "lead_count",
+        "field_type": "number",
+        "required": true,
+        "unique": false,
+        "default_value": 0,
+        "help_text": "Total number of leads from this source in this month",
+        "validation": {
+          "min_value": 0,
+          "max_value": 99999
+        },
+        "decimal_places": 0
+      },
+      {
+        "name": "Last Updated",
+        "api_name": "last_updated",
+        "field_type": "datetime",
+        "required": true,
+        "unique": false,
+        "default_value": "current_datetime",
+        "help_text": "Timestamp of the last update to this record",
+        "display_format": "YYYY-MM-DD HH:mm:ss"
+      },
+      {
+        "name": "Sync Status",
+        "api_name": "sync_status",
+        "field_type": "picklist",
+        "required": true,
+        "unique": false,
+        "default_value": "Synced",
+        "help_text": "Status of synchronization with Zoho CRM",
+        "picklist_values": [
+          {
+            "label": "Pending",
+            "value": "Pending",
+            "color": "#F59E0B"
+          },
+          {
+            "label": "Synced",
+            "value": "Synced",
+            "color": "#10B981"
+          },
+          {
+            "label": "Failed",
+            "value": "Failed",
+            "color": "#EF4444"
+          },
+          {
+            "label": "Retry Required",
+            "value": "Retry Required",
+            "color": "#F97316"
+          }
+        ]
+      },
+      {
+        "name": "Failed Contacts",
+        "api_name": "failed_contacts",
+        "field_type": "long_text",
+        "max_length": 5000,
+        "required": false,
+        "unique": false,
+        "default_value": "",
+        "help_text": "JSON array of contact IDs that failed to sync to Zoho CRM"
+      },
+      {
+        "name": "Success Rate",
+        "api_name": "success_rate",
+        "field_type": "number",
+        "required": false,
+        "unique": false,
+        "default_value": 100,
+        "help_text": "Percentage of successful Zoho CRM syncs for this month/source",
+        "validation": {
+          "min_value": 0,
+          "max_value": 100
+        },
+        "decimal_places": 2,
+        "format": "percentage"
+      },
+      {
+        "name": "Total Attempts",
+        "api_name": "total_attempts",
+        "field_type": "number",
+        "required": false,
+        "unique": false,
+        "default_value": 0,
+        "help_text": "Total number of sync attempts (successful + failed)",
+        "validation": {
+          "min_value": 0
+        },
+        "decimal_places": 0
+      },
+      {
+        "name": "First Lead Date",
+        "api_name": "first_lead_date",
+        "field_type": "datetime",
+        "required": false,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Timestamp of the first lead logged in this month/source combination"
+      },
+      {
+        "name": "Last Lead Date",
+        "api_name": "last_lead_date",
+        "field_type": "datetime",
+        "required": false,
+        "unique": false,
+        "default_value": null,
+        "help_text": "Timestamp of the most recent lead logged in this month/source combination"
+      },
+      {
+        "name": "Notes",
+        "api_name": "notes",
+        "field_type": "long_text",
+        "max_length": 2000,
+        "required": false,
+        "unique": false,
+        "default_value": "",
+        "help_text": "Additional notes or observations about lead performance for this period"
+      }
+    ],
+    "unique_constraints": [
+      {
+        "name": "unique_month_source",
+        "fields": ["month_year", "lead_source"],
+        "description": "Ensure only one record per month/source combination"
+      }
+    ],
+    "relationships": [],
+    "list_views": [
+      {
+        "name": "Current Month Leads",
+        "fields": [
+          "month_year",
+          "lead_source", 
+          "lead_count",
+          "success_rate",
+          "sync_status",
+          "last_updated"
+        ],
+        "filters": [
+          {
+            "field": "month_year",
+            "operator": "equals",
+            "value": "{{format(current_datetime, 'YYYY-MM')}}"
+          }
+        ],
+        "sort": [
+          {
+            "field": "lead_count",
+            "direction": "desc"
+          }
+        ]
+      },
+      {
+        "name": "Failed Syncs",
+        "fields": [
+          "month_year",
+          "lead_source",
+          "lead_count", 
+          "total_attempts",
+          "success_rate",
+          "failed_contacts",
+          "last_updated"
+        ],
+        "filters": [
+          {
+            "field": "sync_status",
+            "operator": "in",
+            "value": ["Failed", "Retry Required"]
+          }
+        ],
+        "sort": [
+          {
+            "field": "last_updated",
+            "direction": "desc"
+          }
+        ]
+      },
+      {
+        "name": "Monthly Summary",
+        "fields": [
+          "month_year",
+          "lead_source",
+          "lead_count",
+          "success_rate",
+          "first_lead_date",
+          "last_lead_date"
+        ],
+        "filters": [],
+        "sort": [
+          {
+            "field": "month_year",
+            "direction": "desc"
+          },
+          {
+            "field": "lead_count",
+            "direction": "desc"
+          }
+        ]
+      },
+      {
+        "name": "Lead Source Performance",
+        "fields": [
+          "lead_source",
+          "month_year",
+          "lead_count",
+          "success_rate",
+          "total_attempts"
+        ],
+        "filters": [],
+        "sort": [
+          {
+            "field": "lead_source",
+            "direction": "asc"
+          },
+          {
+            "field": "month_year",
+            "direction": "desc"
+          }
+        ]
+      }
+    ],
+    "page_layouts": [
+      {
+        "name": "Standard Layout",
+        "sections": [
+          {
+            "name": "Lead Tracking Information",
+            "columns": 2,
+            "fields": [
+              "month_year",
+              "lead_source",
+              "lead_count",
+              "sync_status"
+            ]
+          },
+          {
+            "name": "Performance Metrics",
+            "columns": 2,
+            "fields": [
+              "success_rate",
+              "total_attempts",
+              "first_lead_date",
+              "last_lead_date"
+            ]
+          },
+          {
+            "name": "Sync Details",
+            "columns": 1,
+            "fields": [
+              "failed_contacts",
+              "last_updated"
+            ]
+          },
+          {
+            "name": "Additional Information",
+            "columns": 1,
+            "fields": [
+              "notes"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Summary Layout",
+        "sections": [
+          {
+            "name": "Key Metrics",
+            "columns": 3,
+            "fields": [
+              "month_year",
+              "lead_source",
+              "lead_count",
+              "success_rate",
+              "sync_status",
+              "last_updated"
+            ]
+          }
+        ]
+      }
+    ],
+    "automation": {
+      "field_updates": [
+        {
+          "trigger": "lead_count_updated",
+          "action": "calculate_success_rate",
+          "formula": "{{(total_attempts - failed_count) / total_attempts * 100}}"
+        },
+        {
+          "trigger": "first_lead_logged",
+          "action": "set_field",
+          "field": "first_lead_date",
+          "value": "current_datetime"
+        },
+        {
+          "trigger": "lead_logged",
+          "action": "set_field", 
+          "field": "last_lead_date",
+          "value": "current_datetime"
+        }
+      ],
+      "notifications": [
+        {
+          "trigger": "sync_status_changed_to_failed",
+          "recipients": ["admin", "manager"],
+          "template": "lead_sync_failure",
+          "priority": "high"
+        },
+        {
+          "trigger": "monthly_threshold_exceeded",
+          "recipients": ["manager", "analyst"],
+          "template": "lead_volume_alert",
+          "conditions": [
+            {
+              "field": "lead_count",
+              "operator": "greater_than",
+              "value": 100
+            }
+          ]
+        }
+      ],
+      "scheduled_actions": [
+        {
+          "schedule": "0 0 1 * *",
+          "action": "create_new_month_records",
+          "description": "Initialize lead log records for new month"
+        },
+        {
+          "schedule": "0 9 * * 1",
+          "action": "send_weekly_summary",
+          "description": "Send weekly lead summary report every Monday at 9 AM"
+        }
+      ]
+    },
+    "reports": [
+      {
+        "name": "Monthly Lead Volume Report",
+        "type": "summary",
+        "group_by": ["month_year", "lead_source"],
+        "metrics": ["sum(lead_count)", "avg(success_rate)"],
+        "filters": [
+          {
+            "field": "month_year",
+            "operator": "last_n_months",
+            "value": 6
+          }
+        ],
+        "chart_type": "bar"
+      },
+      {
+        "name": "Lead Source Performance Report",
+        "type": "summary", 
+        "group_by": ["lead_source"],
+        "metrics": ["sum(lead_count)", "avg(success_rate)", "count(*)"],
+        "filters": [
+          {
+            "field": "month_year",
+            "operator": "last_n_months",
+            "value": 3
+          }
+        ],
+        "chart_type": "pie"
+      },
+      {
+        "name": "Sync Health Report",
+        "type": "detail",
+        "fields": [
+          "month_year",
+          "lead_source", 
+          "lead_count",
+          "total_attempts",
+          "success_rate",
+          "sync_status"
+        ],
+        "filters": [
+          {
+            "field": "sync_status",
+            "operator": "not_equals",
+            "value": "Synced"
+          }
+        ],
+        "sort": [
+          {
+            "field": "success_rate",
+            "direction": "asc"
+          }
+        ]
+      },
+      {
+        "name": "Lead Trend Analysis",
+        "type": "trend",
+        "date_field": "month_year",
+        "metrics": ["lead_count"],
+        "group_by": ["lead_source"],
+        "period": "monthly",
+        "chart_type": "line"
+      }
+    ],
+    "dashboards": [
+      {
+        "name": "Lead Monitoring Dashboard",
+        "widgets": [
+          {
+            "type": "metric",
+            "title": "This Month's Leads",
+            "source": "current_month_total",
+            "size": "small"
+          },
+          {
+            "type": "metric",
+            "title": "Sync Success Rate",
+            "source": "average_success_rate",
+            "size": "small"
+          },
+          {
+            "type": "chart",
+            "title": "Leads by Source",
+            "source": "lead_source_distribution",
+            "chart_type": "donut",
+            "size": "medium"
+          },
+          {
+            "type": "chart",
+            "title": "Monthly Trend",
+            "source": "monthly_lead_trend",
+            "chart_type": "line",
+            "size": "large"
+          },
+          {
+            "type": "table",
+            "title": "Recent Failed Syncs",
+            "source": "failed_syncs_view",
+            "size": "medium"
+          }
+        ]
+      }
+    ],
+    "api_endpoints": [
+      {
+        "endpoint": "/api/lead_logs/monthly_summary",
+        "method": "GET",
+        "description": "Get monthly summary of lead metrics",
+        "parameters": [
+          {
+            "name": "month",
+            "type": "string",
+            "required": false,
+            "description": "Specific month in YYYY-MM format, defaults to current month"
+          },
+          {
+            "name": "source",
+            "type": "string", 
+            "required": false,
+            "description": "Filter by specific lead source"
+          }
+        ]
+      },
+      {
+        "endpoint": "/api/lead_logs/increment",
+        "method": "POST",
+        "description": "Increment lead count for specific month/source",
+        "parameters": [
+          {
+            "name": "month_year",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "lead_source", 
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "increment_by",
+            "type": "number",
+            "required": false,
+            "default": 1
+          }
+        ]
+      }
+    ],
+    "integration_webhooks": [
+      {
+        "name": "zoho_sync_status_update",
+        "url": "{{env.ZOHO_WEBHOOK_URL}}",
+        "triggers": ["record_created", "sync_status_changed"],
+        "payload_template": {
+          "event_type": "{{trigger_type}}",
+          "lead_log_id": "{{record.id}}",
+          "month_year": "{{record.month_year}}",
+          "lead_source": "{{record.lead_source}}",
+          "lead_count": "{{record.lead_count}}",
+          "sync_status": "{{record.sync_status}}"
+        }
+      },
+      {
+        "name": "makecom_monthly_report",
+        "url": "{{env.MAKECOM_REPORT_WEBHOOK_URL}}", 
+        "triggers": ["monthly_rollover", "threshold_exceeded"],
+        "schedule": "0 0 1 * *",
+        "payload_template": {
+          "event_type": "monthly_summary",
+          "period": "{{format(current_datetime, 'YYYY-MM')}}",
+          "summary": "{{monthly_aggregates}}"
+        }
+      }
+    ]
+  },
+  "setup_instructions": {
+    "prerequisites": [
+      "SleekFlow account with custom object creation privileges",
+      "Admin access to configure field permissions",
+      "Understanding of the UC4 workflow requirements"
+    ],
+    "installation_steps": [
+      "1. Navigate to SleekFlow Settings → Custom Objects",
+      "2. Click 'Create New Object' and import this schema",
+      "3. Configure field permissions based on your team structure", 
+      "4. Set up list views and page layouts",
+      "5. Configure automation rules and notifications",
+      "6. Test the object with sample data",
+      "7. Integrate with UC4 workflow configuration"
+    ],
+    "validation_checklist": [
+      "All required fields are properly configured",
+      "Unique constraint on month_year + lead_source works",
+      "List views display correct data",
+      "Automation rules trigger as expected",
+      "Permissions allow workflow to create/update records",
+      "Integration webhooks are properly configured"
+    ]
+  },
+  "metadata": {
+    "created_date": "2025-01-21",
+    "version": "1.0",
+    "author": "System Administrator",
+    "related_workflows": ["UC4 Zoho CRM Lead Logger"],
+    "dependencies": ["Contact object", "UC1 Enquiry Handler", "UC3 Shopify Integration"],
+    "tags": ["lead-tracking", "monthly-monitoring", "zoho-crm", "analytics"]
+  }
+}
