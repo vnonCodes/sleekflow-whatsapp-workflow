@@ -1,0 +1,763 @@
+{
+  "scenario": {
+    "name": "UC4: Lead Monitoring and Monthly Reporting Extension",
+    "description": "Extension to UC3 Make.com scenario for advanced lead tracking, monthly reporting, and Zoho CRM integration monitoring",
+    "version": "1.0",
+    "enabled": true,
+    "scheduling": "immediate",
+    "max_cycles": 1,
+    "sequential_processing": true,
+    "timeout": 300,
+    "modules": [
+      {
+        "id": 10,
+        "module": "webhook:custom",
+        "name": "SleekFlow Lead Logging Webhook",
+        "config": {
+          "webhook_name": "sleekflow_lead_webhook",
+          "data_structure": {
+            "type": "collection",
+            "spec": [
+              {
+                "name": "event_type",
+                "type": "text"
+              },
+              {
+                "name": "timestamp",
+                "type": "date"
+              },
+              {
+                "name": "contact",
+                "type": "collection",
+                "spec": [
+                  {
+                    "name": "id",
+                    "type": "text"
+                  },
+                  {
+                    "name": "name",
+                    "type": "text"
+                  },
+                  {
+                    "name": "phone",
+                    "type": "phone"
+                  },
+                  {
+                    "name": "email",
+                    "type": "email"
+                  },
+                  {
+                    "name": "lead_source",
+                    "type": "text"
+                  }
+                ]
+              },
+              {
+                "name": "zoho_response",
+                "type": "collection",
+                "spec": [
+                  {
+                    "name": "success",
+                    "type": "boolean"
+                  },
+                  {
+                    "name": "lead_id",
+                    "type": "text"
+                  },
+                  {
+                    "name": "created_time",
+                    "type": "date"
+                  }
+                ]
+              },
+              {
+                "name": "monthly_stats",
+                "type": "collection",
+                "spec": [
+                  {
+                    "name": "month_year",
+                    "type": "text"
+                  },
+                  {
+                    "name": "current_count",
+                    "type": "number"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "next": 11
+      },
+      {
+        "id": 11,
+        "module": "builtin:router",
+        "name": "Event Type Router",
+        "config": {
+          "routes": [
+            {
+              "route_id": "lead_logged",
+              "condition": {
+                "field": "{{10.event_type}}",
+                "operator": "equals",
+                "value": "lead_logged"
+              },
+              "next": 12
+            },
+            {
+              "route_id": "monthly_summary",
+              "condition": {
+                "field": "{{10.event_type}}",
+                "operator": "equals",
+                "value": "monthly_summary"
+              },
+              "next": 18
+            },
+            {
+              "route_id": "error_recovery",
+              "condition": {
+                "field": "{{10.event_type}}",
+                "operator": "equals",
+                "value": "sync_failure"
+              },
+              "next": 20
+            }
+          ]
+        }
+      },
+      {
+        "id": 12,
+        "module": "google-sheets:add-a-row",
+        "name": "Log Lead to Google Sheets",
+        "config": {
+          "spreadsheet_id": "{{env.GOOGLE_SHEETS_LEAD_TRACKING_ID}}",
+          "sheet_name": "Lead Tracking",
+          "values": {
+            "A": "{{10.timestamp}}",
+            "B": "{{10.contact.lead_source}}",
+            "C": "{{10.contact.name}}",
+            "D": "{{10.contact.phone}}",
+            "E": "{{10.contact.email}}",
+            "F": "{{if(10.zoho_response.success; 'Success'; 'Failed')}}",
+            "G": "{{10.zoho_response.lead_id}}",
+            "H": "{{10.monthly_stats.month_year}}",
+            "I": "{{10.monthly_stats.current_count}}",
+            "J": "{{10.contact.id}}"
+          },
+          "value_input_option": "USER_ENTERED"
+        },
+        "next": 13
+      },
+      {
+        "id": 13,
+        "module": "google-sheets:get-range",
+        "name": "Get Monthly Summary Data",
+        "config": {
+          "spreadsheet_id": "{{env.GOOGLE_SHEETS_LEAD_TRACKING_ID}}",
+          "sheet_name": "Monthly Summary",
+          "range": "A:F",
+          "value_render_option": "UNFORMATTED_VALUE"
+        },
+        "next": 14
+      },
+      {
+        "id": 14,
+        "module": "builtin:array-aggregator",
+        "name": "Aggregate Monthly Data",
+        "config": {
+          "source_module": 13,
+          "group_by": "{{13.values[7]}}",
+          "aggregations": [
+            {
+              "function": "count",
+              "field": "{{13.values[0]}}",
+              "label": "total_leads"
+            },
+            {
+              "function": "count",
+              "field": "{{if(13.values[5] = 'Success'; 1; 0)}}",
+              "label": "successful_syncs"
+            },
+            {
+              "function": "list",
+              "field": "{{13.values[1]}}",
+              "label": "lead_sources"
+            }
+          ]
+        },
+        "next": 15
+      },
+      {
+        "id": 15,
+        "module": "google-sheets:update-range",
+        "name": "Update Monthly Summary Sheet",
+        "config": {
+          "spreadsheet_id": "{{env.GOOGLE_SHEETS_LEAD_TRACKING_ID}}",
+          "sheet_name": "Monthly Summary",
+          "range": "{{formatDate(10.timestamp; 'YYYY-MM')}}:{{formatDate(10.timestamp; 'YYYY-MM')}}",
+          "values": [
+            [
+              "{{10.monthly_stats.month_year}}",
+              "{{14.total_leads}}",
+              "{{14.successful_syncs}}",
+              "{{round(divide(14.successful_syncs; 14.total_leads) * 100; 2)}}%",
+              "{{join(unique(14.lead_sources); ', ')}}",
+              "{{now}}"
+            ]
+          ],
+          "value_input_option": "USER_ENTERED"
+        },
+        "next": 16
+      },
+      {
+        "id": 16,
+        "module": "builtin:filter",
+        "name": "Check Lead Threshold Alert",
+        "config": {
+          "condition": {
+            "operator": "and",
+            "conditions": [
+              {
+                "field": "{{10.monthly_stats.current_count}}",
+                "operator": "greater_than",
+                "value": 50
+              },
+              {
+                "field": "{{mod(10.monthly_stats.current_count; 25)}}",
+                "operator": "equals",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "next": 17
+      },
+      {
+        "id": 17,
+        "module": "slack:send-a-message",
+        "name": "Send Lead Milestone Alert",
+        "config": {
+          "channel": "{{env.SLACK_LEADS_CHANNEL}}",
+          "message": {
+            "text": "🎯 Lead Milestone Reached!",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "🎯 Lead Milestone: {{10.monthly_stats.current_count}} Leads!"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Month:* {{10.monthly_stats.month_year}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Lead Source:* {{10.contact.lead_source}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Current Count:* {{10.monthly_stats.current_count}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Success Rate:* {{round(divide(14.successful_syncs; 14.total_leads) * 100; 2)}}%"
+                  }
+                ]
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "Great job! Keep up the momentum 🚀"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": 18,
+        "module": "google-sheets:get-range",
+        "name": "Get Full Monthly Data for Report",
+        "config": {
+          "spreadsheet_id": "{{env.GOOGLE_SHEETS_LEAD_TRACKING_ID}}",
+          "sheet_name": "Monthly Summary",
+          "range": "A:F",
+          "value_render_option": "FORMATTED_VALUE"
+        },
+        "next": 19
+      },
+      {
+        "id": 19,
+        "module": "email:send",
+        "name": "Send Monthly Lead Report",
+        "config": {
+          "to": [
+            "manager@company.com",
+            "sales@company.com",
+            "marketing@company.com"
+          ],
+          "subject": "📊 Monthly Lead Report - {{formatDate(now; 'MMMM YYYY')}}",
+          "html": "<!DOCTYPE html><html><head><style>table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:12px;text-align:left;}th{background-color:#f2f2f2;}.metric{background-color:#e8f5e8;font-weight:bold;}.header{color:#2d3748;font-size:24px;margin-bottom:20px;}.summary{background-color:#f8f9fa;padding:15px;border-radius:8px;margin:20px 0;}</style></head><body><div class='header'>📊 Monthly Lead Performance Report</div><div class='summary'><h3>Key Highlights</h3><ul><li><strong>Total Leads:</strong> {{sum(map(18.values; item[1]))}}</li><li><strong>Average Success Rate:</strong> {{round(avg(map(18.values; parseNumber(replace(item[3]; '%'; ''))));2)}}%</li><li><strong>Top Lead Source:</strong> {{first(sort(map(18.values; item[4]); 'desc'))}}</li></ul></div><h3>Monthly Breakdown</h3><table><tr><th>Month</th><th>Total Leads</th><th>Successful Syncs</th><th>Success Rate</th><th>Lead Sources</th><th>Last Updated</th></tr>{{#each 18.values}}<tr><td>{{item[0]}}</td><td class='metric'>{{item[1]}}</td><td>{{item[2]}}</td><td>{{item[3]}}</td><td>{{item[4]}}</td><td>{{item[5]}}</td></tr>{{/each}}</table><div style='margin-top:30px;font-size:12px;color:#666;'>Generated automatically by SleekFlow Lead Monitoring System<br>Report Date: {{formatDate(now; 'YYYY-MM-DD HH:mm:ss')}}</div></body></html>",
+          "from": "noreply@company.com",
+          "from_name": "SleekFlow Lead Monitoring"
+        }
+      },
+      {
+        "id": 20,
+        "module": "http:request",
+        "name": "Retry Failed Zoho Sync",
+        "config": {
+          "url": "https://www.zohoapis.com/crm/v2/Leads",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Zoho-oauthtoken {{env.ZOHO_ACCESS_TOKEN}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "data": [
+              {
+                "First_Name": "{{split(10.contact.name; ' ')[0]}}",
+                "Last_Name": "{{split(10.contact.name; ' ')[1]}}",
+                "Phone": "{{10.contact.phone}}",
+                "Email": "{{10.contact.email}}",
+                "Lead_Source": "{{10.contact.lead_source}}",
+                "Lead_Status": "Not Contacted",
+                "Description": "Retry sync from SleekFlow - {{10.contact.lead_source}} channel",
+                "SleekFlow_Contact_ID": "{{10.contact.id}}",
+                "Retry_Attempt": "true"
+              }
+            ]
+          },
+          "timeout": 30
+        },
+        "error_handlers": [
+          {
+            "type": "resume",
+            "next": 21
+          }
+        ],
+        "next": 22
+      },
+      {
+        "id": 21,
+        "module": "slack:send-a-message",
+        "name": "Alert Failed Retry",
+        "config": {
+          "channel": "{{env.SLACK_ALERTS_CHANNEL}}",
+          "message": {
+            "text": "🚨 Failed Zoho Sync Retry",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Failed to retry Zoho CRM sync*\n\n*Contact:* {{10.contact.name}}\n*Phone:* {{10.contact.phone}}\n*Email:* {{10.contact.email}}\n*Lead Source:* {{10.contact.lead_source}}\n*Contact ID:* {{10.contact.id}}\n\n*Error:* {{20.error.message}}\n\n*Manual intervention required*"
+                }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "Open in Zoho"
+                    },
+                    "url": "https://crm.zoho.com/crm/org{{env.ZOHO_ORG_ID}}/tab/Leads"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": 22,
+        "module": "slack:send-a-message",
+        "name": "Confirm Successful Retry",
+        "config": {
+          "channel": "{{env.SLACK_LEADS_CHANNEL}}",
+          "message": {
+            "text": "✅ Successfully retried Zoho sync for {{10.contact.name}} ({{10.contact.lead_source}})"
+          }
+        }
+      }
+    ],
+    "scheduled_scenarios": [
+      {
+        "id": "monthly_report_generator",
+        "name": "Monthly Lead Report Generator",
+        "schedule": "0 9 1 * *",
+        "description": "Generate and send monthly lead performance report",
+        "modules": [
+          {
+            "id": 30,
+            "module": "google-sheets:get-range",
+            "name": "Get Previous Month Data",
+            "config": {
+              "spreadsheet_id": "{{env.GOOGLE_SHEETS_LEAD_TRACKING_ID}}",
+              "sheet_name": "Lead Tracking",
+              "range": "A:J",
+              "value_render_option": "FORMATTED_VALUE"
+            },
+            "next": 31
+          },
+          {
+            "id": 31,
+            "module": "builtin:array-aggregator",
+            "name": "Calculate Monthly KPIs",
+            "config": {
+              "source_module": 30,
+              "group_by": "{{formatDate(parseDate(30.values[0]; 'YYYY-MM-DD'); 'YYYY-MM')}}",
+              "aggregations": [
+                {
+                  "function": "count",
+                  "field": "{{30.values[0]}}",
+                  "label": "total_leads"
+                },
+                {
+                  "function": "count",
+                  "field": "{{if(30.values[5] = 'Success'; 1; 0)}}",
+                  "label": "successful_syncs"
+                },
+                {
+                  "function": "count_unique",
+                  "field": "{{30.values[1]}}",
+                  "label": "unique_sources"
+                },
+                {
+                  "function": "list_unique",
+                  "field": "{{30.values[1]}}",
+                  "label": "lead_sources"
+                }
+              ]
+            },
+            "next": 32
+          },
+          {
+            "id": 32,
+            "module": "email:send",
+            "name": "Send Executive Monthly Report",
+            "config": {
+              "to": [
+                "ceo@company.com",
+                "sales-director@company.com",
+                "marketing-director@company.com"
+              ],
+              "subject": "📈 Executive Lead Performance Report - {{formatDate(subtract(now; days(30)); 'MMMM YYYY')}}",
+              "html": "<!DOCTYPE html><html><head><style>.executive-report{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;}.header{background:#2d3748;color:white;padding:20px;text-align:center;border-radius:8px 8px 0 0;}.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin:20px 0;}.kpi-card{background:#f7fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;text-align:center;}.kpi-number{font-size:2em;font-weight:bold;color:#2b6cb0;}.kpi-label{color:#4a5568;margin-top:10px;}.trend{margin:20px 0;padding:20px;background:#edf2f7;border-radius:8px;}.success{color:#38a169;}.warning{color:#d69e2e;}.danger{color:#e53e3e;}</style></head><body><div class='executive-report'><div class='header'><h1>📈 Lead Performance Dashboard</h1><p>{{formatDate(subtract(now; days(30)); 'MMMM YYYY')}} Executive Summary</p></div><div class='kpi-grid'>{{#each 31.groups}}<div class='kpi-card'><div class='kpi-number'>{{total_leads}}</div><div class='kpi-label'>Total Leads<br><small>{{@key}}</small></div></div><div class='kpi-card'><div class='kpi-number {{if (gte (divide successful_syncs total_leads) 0.95) 'success' (if (gte (divide successful_syncs total_leads) 0.90) 'warning' 'danger')}}'>{{round(divide(successful_syncs; total_leads) * 100; 1)}}%</div><div class='kpi-label'>Success Rate<br><small>{{successful_syncs}}/{{total_leads}} synced</small></div></div><div class='kpi-card'><div class='kpi-number'>{{unique_sources}}</div><div class='kpi-label'>Active Sources<br><small>{{join(lead_sources; ', ')}}</small></div></div>{{/each}}</div><div class='trend'><h3>Key Insights</h3><ul><li><strong>Month-over-Month Growth:</strong> {{if (gt (get 31.groups 0 'total_leads') (get 31.groups 1 'total_leads')) 'Increased' 'Decreased'}} by {{abs(subtract((get 31.groups 0 'total_leads'); (get 31.groups 1 'total_leads')))}} leads</li><li><strong>Best Performing Source:</strong> {{first(sort(31.groups; 'total_leads'; 'desc')).lead_sources[0]}}</li><li><strong>Sync Reliability:</strong> {{if (gte (avg(map(31.groups; divide(item.successful_syncs; item.total_leads)))) 0.95) 'Excellent' (if (gte (avg(map(31.groups; divide(item.successful_syncs; item.total_leads)))) 0.90) 'Good' 'Needs Attention')}}</li></ul></div><div style='text-align:center;margin-top:30px;color:#666;font-size:12px;'>Automated report generated by SleekFlow Lead Intelligence System<br>{{formatDate(now; 'YYYY-MM-DD HH:mm:ss')}}</div></div></body></html>",
+              "from": "reports@company.com",
+              "from_name": "Lead Intelligence System"
+            }
+          }
+        ]
+      },
+      {
+        "id": "daily_health_check",
+        "name": "Daily Lead System Health Check",
+        "schedule": "0 8 * * 1-5",
+        "description": "Daily health check and alert for lead system performance",
+        "modules": [
+          {
+            "id": 40,
+            "module": "google-sheets:get-range",
+            "name": "Get Yesterday's Lead Data",
+            "config": {
+              "spreadsheet_id": "{{env.GOOGLE_SHEETS_LEAD_TRACKING_ID}}",
+              "sheet_name": "Lead Tracking",
+              "range": "A:J",
+              "value_render_option": "FORMATTED_VALUE"
+            },
+            "next": 41
+          },
+          {
+            "id": 41,
+            "module": "builtin:array-filter",
+            "name": "Filter Yesterday's Records",
+            "config": {
+              "condition": {
+                "field": "{{formatDate(parseDate(40.values[0]; 'YYYY-MM-DD'); 'YYYY-MM-DD')}}",
+                "operator": "equals",
+                "value": "{{formatDate(subtract(now; days(1)); 'YYYY-MM-DD')}}"
+              }
+            },
+            "next": 42
+          },
+          {
+            "id": 42,
+            "module": "builtin:array-aggregator",
+            "name": "Calculate Daily Metrics",
+            "config": {
+              "source_module": 41,
+              "aggregations": [
+                {
+                  "function": "count",
+                  "field": "{{41.values[0]}}",
+                  "label": "total_yesterday"
+                },
+                {
+                  "function": "count",
+                  "field": "{{if(41.values[5] = 'Success'; 1; 0)}}",
+                  "label": "successful_yesterday"
+                },
+                {
+                  "function": "count",
+                  "field": "{{if(41.values[5] = 'Failed'; 1; 0)}}",
+                  "label": "failed_yesterday"
+                }
+              ]
+            },
+            "next": 43
+          },
+          {
+            "id": 43,
+            "module": "slack:send-a-message",
+            "name": "Send Daily Health Summary",
+            "config": {
+              "channel": "{{env.SLACK_LEADS_CHANNEL}}",
+              "message": {
+                "text": "📊 Daily Lead System Health Check",
+                "blocks": [
+                  {
+                    "type": "header",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "📊 Yesterday's Lead Performance"
+                    }
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Total Leads:* {{42.total_yesterday}}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Successful Syncs:* {{42.successful_yesterday}}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Failed Syncs:* {{42.failed_yesterday}}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Success Rate:* {{if(gt(42.total_yesterday; 0); round(divide(42.successful_yesterday; 42.total_yesterday) * 100; 1); 'N/A')}}%"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "{{if(lt(divide(42.successful_yesterday; 42.total_yesterday); 0.95); '⚠️ *Attention Required*: Success rate below 95%'; '✅ *System Healthy*: All systems operating normally'}}"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "environment_variables": [
+      {
+        "name": "GOOGLE_SHEETS_LEAD_TRACKING_ID",
+        "description": "Google Sheets ID for lead tracking spreadsheet",
+        "required": true,
+        "encrypted": false
+      },
+      {
+        "name": "SLACK_LEADS_CHANNEL",
+        "description": "Slack channel for lead notifications and updates",
+        "required": true,
+        "encrypted": false
+      },
+      {
+        "name": "SLACK_ALERTS_CHANNEL",
+        "description": "Slack channel for system alerts and errors",
+        "required": true,
+        "encrypted": false
+      },
+      {
+        "name": "ZOHO_ACCESS_TOKEN",
+        "description": "Zoho CRM OAuth access token",
+        "required": true,
+        "encrypted": true
+      },
+      {
+        "name": "ZOHO_ORG_ID",
+        "description": "Zoho CRM organization ID",
+        "required": true,
+        "encrypted": false
+      }
+    ],
+    "google_sheets_setup": {
+      "spreadsheet_name": "SleekFlow Lead Tracking",
+      "sheets": [
+        {
+          "name": "Lead Tracking",
+          "headers": [
+            "Timestamp",
+            "Lead Source", 
+            "Contact Name",
+            "Phone",
+            "Email",
+            "Sync Status",
+            "Zoho Lead ID",
+            "Month Year",
+            "Monthly Count",
+            "SleekFlow Contact ID"
+          ]
+        },
+        {
+          "name": "Monthly Summary",
+          "headers": [
+            "Month Year",
+            "Total Leads",
+            "Successful Syncs",
+            "Success Rate",
+            "Lead Sources",
+            "Last Updated"
+          ]
+        },
+        {
+          "name": "KPI Dashboard",
+          "headers": [
+            "Metric",
+            "Current Month",
+            "Previous Month",
+            "Change %",
+            "Target",
+            "Status"
+          ],
+          "initial_data": [
+            ["Total Leads", "=COUNTIF('Lead Tracking'!H:H, TEXT(TODAY(), \"YYYY-MM\"))", "=COUNTIF('Lead Tracking'!H:H, TEXT(EOMONTH(TODAY(),-1), \"YYYY-MM\"))", "=IF(C2=0,0,(B2-C2)/C2*100)", 100, "=IF(B2>=E2,\"✅\",\"⚠️\")"],
+            ["Success Rate %", "=COUNTIFS('Lead Tracking'!H:H, TEXT(TODAY(), \"YYYY-MM\"), 'Lead Tracking'!F:F, \"Success\")/COUNTIF('Lead Tracking'!H:H, TEXT(TODAY(), \"YYYY-MM\"))*100", "=COUNTIFS('Lead Tracking'!H:H, TEXT(EOMONTH(TODAY(),-1), \"YYYY-MM\"), 'Lead Tracking'!F:F, \"Success\")/COUNTIF('Lead Tracking'!H:H, TEXT(EOMONTH(TODAY(),-1), \"YYYY-MM\"))*100", "=(B3-C3)", 95, "=IF(B3>=E3,\"✅\",IF(B3>=90,\"⚠️\",\"🚨\"))"],
+            ["WhatsApp Leads", "=COUNTIFS('Lead Tracking'!H:H, TEXT(TODAY(), \"YYYY-MM\"), 'Lead Tracking'!B:B, \"WhatsApp\")", "=COUNTIFS('Lead Tracking'!H:H, TEXT(EOMONTH(TODAY(),-1), \"YYYY-MM\"), 'Lead Tracking'!B:B, \"WhatsApp\")", "=IF(C4=0,0,(B4-C4)/C4*100)", 80, "=IF(B4>=E4,\"✅\",\"⚠️\")"],
+            ["Website Leads", "=COUNTIFS('Lead Tracking'!H:H, TEXT(TODAY(), \"YYYY-MM\"), 'Lead Tracking'!B:B, \"Website Form\")", "=COUNTIFS('Lead Tracking'!H:H, TEXT(EOMONTH(TODAY(),-1), \"YYYY-MM\"), 'Lead Tracking'!B:B, \"Website Form\")", "=IF(C5=0,0,(B5-C5)/C5*100)", 20, "=IF(B5>=E5,\"✅\",\"⚠️\")"]
+          ]
+        }
+      ]
+    },
+    "integration_points": {
+      "uc1_enquiry_handler": {
+        "webhook_trigger": "enquiry_created",
+        "data_mapping": {
+          "lead_source": "WhatsApp",
+          "contact_data": "from_enquiry_log"
+        }
+      },
+      "uc2_daily_reminder": {
+        "enhanced_reporting": true,
+        "include_lead_metrics": [
+          "daily_lead_count",
+          "sync_success_rate",
+          "failed_sync_alerts"
+        ]
+      },
+      "uc3_shopify_orders": {
+        "exclusion_logic": true,
+        "shopify_contact_handling": "exclude_from_lead_tracking"
+      }
+    }
+  },
+  "testing": {
+    "test_scenarios": [
+      {
+        "name": "Lead Logged Successfully",
+        "webhook_payload": {
+          "event_type": "lead_logged",
+          "timestamp": "2025-01-21T10:30:00Z",
+          "contact": {
+            "id": "contact_123",
+            "name": "John Doe",
+            "phone": "+1234567890",
+            "email": "john@example.com",
+            "lead_source": "WhatsApp"
+          },
+          "zoho_response": {
+            "success": true,
+            "lead_id": "zoho_lead_456",
+            "created_time": "2025-01-21T10:30:15Z"
+          },
+          "monthly_stats": {
+            "month_year": "2025-01",
+            "current_count": 25
+          }
+        },
+        "expected_outcomes": [
+          "Google Sheets row added",
+          "Monthly summary updated",
+          "No threshold alert (count < 50)",
+          "Success status logged"
+        ]
+      },
+      {
+        "name": "Lead Sync Failed",
+        "webhook_payload": {
+          "event_type": "sync_failure",
+          "timestamp": "2025-01-21T10:30:00Z",
+          "contact": {
+            "id": "contact_124",
+            "name": "Jane Smith",
+            "phone": "+1234567891",
+            "email": "jane@example.com",
+            "lead_source": "Website Form"
+          },
+          "zoho_response": {
+            "success": false,
+            "error": "API rate limit exceeded"
+          }
+        },
+        "expected_outcomes": [
+          "Retry attempt triggered",
+          "Error logged if retry fails",
+          "Slack alert sent",
+          "Manual intervention requested"
+        ]
+      },
+      {
+        "name": "Monthly Milestone Alert",
+        "webhook_payload": {
+          "event_type": "lead_logged",
+          "monthly_stats": {
+            "month_year": "2025-01",
+            "current_count": 75
+          }
+        },
+        "expected_outcomes": [
+          "Milestone alert triggered",
+          "Slack notification sent",
+          "Celebration message included"
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "created_date": "2025-01-21",
+    "version": "1.0",
+    "author": "System Administrator",
+    "extends": "UC3 Shopify Order Confirmation",
+    "dependencies": [
+      "UC4 Lead Logging Workflow",
+      "Google Sheets API",
+      "Slack API",
+      "Zoho CRM API"
+    ],
+    "tags": [
+      "lead-monitoring",
+      "monthly-reporting",
+      "advanced-analytics",
+      "integration-extension"
+    ]
+  }
+}
